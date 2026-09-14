@@ -41,17 +41,26 @@ decisions should reflect that, not "next big social app" framing.
   or Railway managed Postgres. Web push notifications (service worker), not
   native push.
 
-## Data model (Phase 0 — lock before building)
-- User
-- Friendship (decide: bidirectional accept, or follow-based — not yet decided)
-- Group, GroupMembership
-- Post: location (geocoded via places API), timestamp, ETA, expiry,
-  visibility scope (all friends / specific friends / group)
-- Response: user, post, status (going / maybe / can't / arrived)
+## Data model (Phase 0 — locked 2026-09-14)
+Full entity definitions, fields, and authorization rules are in
+`docs/data-model.md`; the API contract is `docs/openapi.yaml`. Summary:
+- User (email/password + JWT, no OAuth in v1; `username` for friend search)
+- Friendship — bidirectional accept (request/accept, not follow-based)
+- Group, GroupMembership (direct-add by an admin, no accept step)
+- Post: location (geocoded via places API), `etaMode` (STATIC or LIVE,
+  poster's choice), expiry, visibility scope (all friends / specific
+  friends / group), plus `PostVisibility` allow-list for the
+  specific-friends case
+- Response: user, post, status (going / maybe / can't / arrived), plus
+  an explicit `sharingEta` opt-in so a responder can privately share
+  their live ETA to the destination — visible only to the poster, never
+  to other responders, and only as a computed ETA string, never raw
+  coordinates
 
 Key design rule: authorization on Post reads must be airtight — a bug here
 leaks someone's real-time location to the wrong audience. Treat this as the
-highest-scrutiny logic in the app, not routine CRUD.
+highest-scrutiny logic in the app, not routine CRUD. The same standard
+applies to Response ETA/location visibility (see data-model.md).
 
 ## Roadmap / phases
 0. API contract + data model locked (shared doc/OpenAPI spec) — not yet done
@@ -68,7 +77,9 @@ highest-scrutiny logic in the app, not routine CRUD.
 8. Deploy (Docker + Railway/Render for backend, Vercel for frontend,
    custom domain, demo account) + written case study
 
-Status: nothing built yet. Currently at Phase 0.
+Status: Phase 0 complete (data model + API contract locked, see
+docs/data-model.md and docs/openapi.yaml). Monorepo initialized
+(frontend/, backend/, docs/). Nothing built yet — starting Phase 1 next.
 
 ## Working agreement
 No filler, no preamble/wrap-up. Give recommendations first, then reasoning.
