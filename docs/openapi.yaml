@@ -1,0 +1,603 @@
+openapi: 3.0.3
+info:
+  title: Tag Along API
+  version: 0.1.0
+  description: >
+    API contract for Tag Along, locked at Phase 0. See docs/data-model.md
+    for entity definitions and the authorization rules that back these
+    endpoints — Post-read scoping and Response ETA visibility in
+    particular are security-critical, not routine CRUD.
+
+servers:
+  - url: /api
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/signup:
+    post:
+      tags: [auth]
+      security: []
+      summary: Create an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, username, displayName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                username: { type: string }
+                displayName: { type: string }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: Email or username already taken
+
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      summary: Log in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current user profile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/search:
+    get:
+      tags: [users]
+      summary: Search users by exact/partial username
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Matching users (public fields only)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicUser'
+
+  /friends:
+    get:
+      tags: [friends]
+      summary: List accepted friends
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicUser'
+
+  /friends/requests:
+    post:
+      tags: [friends]
+      summary: Send a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [addresseeId]
+              properties:
+                addresseeId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Request created (PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friendship'
+    get:
+      tags: [friends]
+      summary: List incoming and outgoing pending requests
+      parameters:
+        - name: direction
+          in: query
+          schema: { type: string, enum: [incoming, outgoing] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Friendship'
+
+  /friends/requests/{id}:
+    patch:
+      tags: [friends]
+      summary: Accept or decline a pending request (addressee only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [ACCEPTED, DECLINED] }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friendship'
+        '403':
+          description: Not the addressee
+
+  /friends/{friendshipId}:
+    delete:
+      tags: [friends]
+      summary: Unfriend
+      parameters:
+        - name: friendshipId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Removed
+
+  /groups:
+    post:
+      tags: [groups]
+      summary: Create a group (creator becomes ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+    get:
+      tags: [groups]
+      summary: List groups the current user belongs to
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+
+  /groups/{id}:
+    get:
+      tags: [groups]
+      summary: Get a group (members only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '403':
+          description: Not a member
+    delete:
+      tags: [groups]
+      summary: Delete a group (ADMIN only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          description: Not an admin
+
+  /groups/{id}/members:
+    post:
+      tags: [groups]
+      summary: Add an existing friend to the group (ADMIN only, direct-add, no accept step)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Added
+        '403':
+          description: Not an admin, or target is not a friend of the admin
+
+  /groups/{id}/members/{userId}:
+    delete:
+      tags: [groups]
+      summary: Remove a member (self-leave, or ADMIN removing someone else)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: >
+            Removed. Must immediately revoke access to the group's posts
+            for that user — see data-model.md authorization rule 5.
+
+  /posts:
+    post:
+      tags: [posts]
+      summary: Create a post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+    get:
+      tags: [posts]
+      summary: >
+        Feed of active posts visible to the current user. Query-level
+        scoping per data-model.md authorization rule 1 — never a
+        fetch-then-filter in application code.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Post'
+
+  /posts/{id}:
+    get:
+      tags: [posts]
+      summary: Get a single post (must pass rule 1 — 404, not 403, if not visible)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+        '404':
+          description: Not found or not visible to this user
+
+  /posts/{id}/cancel:
+    post:
+      tags: [posts]
+      summary: Cancel a post early (poster only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Post status set to CANCELLED
+        '403':
+          description: Not the poster
+
+  /posts/{id}/location:
+    patch:
+      tags: [posts]
+      summary: >
+        Push a live position update (poster only, only when
+        etaMode = LIVE). In Phase 5 this is superseded by a
+        WebSocket/STOMP channel; kept here as the REST fallback/contract.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+      responses:
+        '204':
+          description: Position updated
+        '403':
+          description: Not the poster, or etaMode is not LIVE
+
+  /posts/{id}/responses:
+    post:
+      tags: [responses]
+      summary: Create or update the current user's response to a post (upsert)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [GOING, MAYBE, CANT, ARRIVED] }
+                sharingEta: { type: boolean }
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+    get:
+      tags: [responses]
+      summary: >
+        List responses to a post. Per data-model.md authorization rule 2,
+        `eta` and `lastLat`/`lastLng` are included only when the requester
+        is the poster AND that response has sharingEta = true — otherwise
+        omitted, even for the poster's own view of other fields.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Response'
+
+  /posts/{id}/responses/me/location:
+    patch:
+      tags: [responses]
+      summary: >
+        Push the current user's live position for ETA sharing (only
+        while their own sharingEta = true on this post).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+      responses:
+        '204':
+          description: Position updated
+        '403':
+          description: sharingEta is false for this user on this post
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        username: { type: string }
+        displayName: { type: string }
+        avatarUrl: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    PublicUser:
+      type: object
+      description: User fields visible to others (no email)
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        displayName: { type: string }
+        avatarUrl: { type: string, nullable: true }
+
+    Friendship:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        requesterId: { type: string, format: uuid }
+        addresseeId: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, ACCEPTED, DECLINED] }
+        createdAt: { type: string, format: date-time }
+        respondedAt: { type: string, format: date-time, nullable: true }
+
+    Group:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        creatorId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupMembership'
+
+    GroupMembership:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        role: { type: string, enum: [ADMIN, MEMBER] }
+        joinedAt: { type: string, format: date-time }
+
+    CreatePostRequest:
+      type: object
+      required: [placeName, placeId, lat, lng, etaMode, visibilityScope, expiresAt]
+      properties:
+        placeName: { type: string }
+        placeId: { type: string }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        note: { type: string, nullable: true }
+        etaMode: { type: string, enum: [STATIC, LIVE] }
+        declaredEta:
+          type: string
+          format: date-time
+          nullable: true
+          description: Required when etaMode = STATIC
+        visibilityScope: { type: string, enum: [ALL_FRIENDS, SPECIFIC_FRIENDS, GROUP] }
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Required when visibilityScope = GROUP
+        specificFriendIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Required when visibilityScope = SPECIFIC_FRIENDS
+        expiresAt: { type: string, format: date-time }
+
+    Post:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        posterId: { type: string, format: uuid }
+        placeName: { type: string }
+        placeId: { type: string }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        note: { type: string, nullable: true }
+        etaMode: { type: string, enum: [STATIC, LIVE] }
+        declaredEta: { type: string, format: date-time, nullable: true }
+        posterLastLat: { type: number, format: double, nullable: true }
+        posterLastLng: { type: number, format: double, nullable: true }
+        posterLastLocationAt: { type: string, format: date-time, nullable: true }
+        visibilityScope: { type: string, enum: [ALL_FRIENDS, SPECIFIC_FRIENDS, GROUP] }
+        groupId: { type: string, format: uuid, nullable: true }
+        expiresAt: { type: string, format: date-time }
+        status: { type: string, enum: [ACTIVE, EXPIRED, CANCELLED] }
+        createdAt: { type: string, format: date-time }
+
+    Response:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        postId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        status: { type: string, enum: [GOING, MAYBE, CANT, ARRIVED] }
+        sharingEta: { type: boolean }
+        eta:
+          type: string
+          nullable: true
+          description: >
+            Minutes-away string, e.g. "6 min". Present only for the
+            poster's view of a response with sharingEta = true. Never
+            includes raw coordinates.
+        lastLocationAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Present only under the same condition as `eta`.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
